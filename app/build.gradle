@@ -41,5 +41,10 @@ dependencies {
 
     implementation 'com.google.firebase:firebase-analytics:17.3.0'
     implementation 'com.google.firebase:firebase-database-ktx:19.2.1'
+    //firebase auth
+    implementation 'com.google.firebase:firebase-auth:19.3.0'
+    //firebase auth ui
+    implementation 'com.firebaseui:firebase-ui-auth:6.2.1'
+
     implementation 'androidx.cardview:cardview:1.0.0'
 }
