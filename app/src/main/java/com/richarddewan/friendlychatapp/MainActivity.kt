@@ -5,17 +5,25 @@ import android.text.Editable
 import android.text.InputFilter
 import android.text.InputFilter.LengthFilter
 import android.text.TextWatcher
+import android.util.Log
 import android.view.Menu
-import android.view.MenuItem
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import com.firebase.ui.auth.AuthUI
+import com.firebase.ui.auth.AuthUI.IdpConfig.*
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.database.*
 import java.util.*
 
+
 class MainActivity : AppCompatActivity() {
 
-    private val TAG = "MainActivity"
+    companion object {
+        const val RC_SIGN_IN = 1
+        const val TAG = "MainActivity"
+    }
 
     val ANONYMOUS = "anonymous"
     val DEFAULT_MSG_LENGTH_LIMIT = 1000
@@ -30,9 +38,11 @@ class MainActivity : AppCompatActivity() {
     private var mUsername: String? = null
 
     // Write a message to the database
-    var mFirebaseDatabase = FirebaseDatabase.getInstance()
-    lateinit var mMessageDatabaseReference: DatabaseReference
-    lateinit var mChildEventListener: ChildEventListener
+    private var mFirebaseDatabase = FirebaseDatabase.getInstance()
+    private lateinit var mMessageDatabaseReference: DatabaseReference
+    private lateinit var mChildEventListener: ChildEventListener
+    private lateinit var mFirebaseAuth: FirebaseAuth
+    private lateinit var mAuthStateListener: FirebaseAuth.AuthStateListener
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +50,7 @@ class MainActivity : AppCompatActivity() {
         mUsername = ANONYMOUS
 
         mFirebaseDatabase = FirebaseDatabase.getInstance()
+        mFirebaseAuth = FirebaseAuth.getInstance()
         mMessageDatabaseReference = mFirebaseDatabase.reference.child("message")
 
         // Initialize references to views
@@ -76,7 +87,7 @@ class MainActivity : AppCompatActivity() {
         // Enable Send button when there's text to send
 
         // Enable Send button when there's text to send
-        mMessageEditText!!.addTextChangedListener(object : TextWatcher{
+        mMessageEditText!!.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
 
             }
@@ -105,29 +116,92 @@ class MainActivity : AppCompatActivity() {
             mMessageEditText!!.setText("")
         }
 
-        mChildEventListener = object: ChildEventListener{
-            override fun onCancelled(p0: DatabaseError) { }
+        //firebase auth
+        mAuthStateListener = FirebaseAuth.AuthStateListener {
+            val user: FirebaseUser? = it.currentUser
+            if (user != null) {
+                onSignedIn(user.displayName)
+                Log.d(TAG,"Login success")
 
-            override fun onChildMoved(p0: DataSnapshot, p1: String?) { }
+            } else {
+                startActivityForResult(
+                    AuthUI.getInstance()
+                        .createSignInIntentBuilder()
+                        .setAvailableProviders(
+                            Arrays.asList(
+                                GoogleBuilder().build(),
+                                //FacebookBuilder().build(),
+                                //TwitterBuilder().build(),
+                                //MicrosoftBuilder().build(),
+                                //YahooBuilder().build(),
+                                //AppleBuilder().build(),
+                                //PhoneBuilder().build(),
+                                //AnonymousBuilder().build(),
+                                EmailBuilder().build()
+                            )
+                        )
+                        .build(),
+                    RC_SIGN_IN
+                )
 
-            override fun onChildChanged(p0: DataSnapshot, p1: String?) { }
-
-            override fun onChildAdded(p0: DataSnapshot, p1: String?) {
-               val message: FriendlyMessage? =  p0.getValue(FriendlyMessage::class.java)
-                mMessageAdapter.add(message)
             }
 
-            override fun onChildRemoved(p0: DataSnapshot) { }
-
         }
-
-        mMessageDatabaseReference.addChildEventListener(mChildEventListener)
     }
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         val inflater = menuInflater
         inflater.inflate(R.menu.main_menu, menu)
         return true
+    }
+
+    private fun attachDatabaseReadListener(){
+        mChildEventListener = object : ChildEventListener {
+            override fun onCancelled(p0: DatabaseError) {}
+
+            override fun onChildMoved(p0: DataSnapshot, p1: String?) {}
+
+            override fun onChildChanged(p0: DataSnapshot, p1: String?) {}
+
+            override fun onChildAdded(p0: DataSnapshot, p1: String?) {
+                val message: FriendlyMessage? = p0.getValue(FriendlyMessage::class.java)
+                mMessageAdapter.add(message)
+            }
+
+            override fun onChildRemoved(p0: DataSnapshot) {}
+
+        }
+        mMessageDatabaseReference.addChildEventListener(mChildEventListener)
+    }
+
+    private fun detachDatabaseReadListener(){
+        mMessageDatabaseReference.removeEventListener(mChildEventListener)
+    }
+
+    private fun onSignedIn(userName: String?){
+        mUsername = userName
+        attachDatabaseReadListener()
+
+    }
+
+    private fun onSignOut(){
+        mUsername = ANONYMOUS
+        mMessageAdapter.clear()
+        detachDatabaseReadListener()
+
+
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mFirebaseAuth.removeAuthStateListener(mAuthStateListener)
+        detachDatabaseReadListener()
+        mMessageAdapter.clear()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        mFirebaseAuth.addAuthStateListener(mAuthStateListener)
     }
 
 }
