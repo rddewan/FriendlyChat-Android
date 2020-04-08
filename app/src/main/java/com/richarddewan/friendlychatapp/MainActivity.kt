@@ -18,6 +18,8 @@ import com.firebase.ui.auth.AuthUI.IdpConfig.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.database.*
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageReference
 import java.util.*
 
 
@@ -25,6 +27,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val RC_SIGN_IN = 1
+        const val RC_PHOTO_PIC = 2
         const val TAG = "MainActivity"
     }
 
@@ -36,7 +39,7 @@ class MainActivity : AppCompatActivity() {
     private var mProgressBar: ProgressBar? = null
     private var mPhotoPickerButton: ImageButton? = null
     private var mMessageEditText: EditText? = null
-    private var mSendButton: Button? = null
+    private var mSendButton: ImageButton? = null
 
     private var mUsername: String? = null
 
@@ -46,6 +49,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mChildEventListener: ChildEventListener
     private lateinit var mFirebaseAuth: FirebaseAuth
     private lateinit var mAuthStateListener: FirebaseAuth.AuthStateListener
+    private lateinit var mFireBaseStorage: FirebaseStorage
+    private lateinit var mChatPhotoStorageReference: StorageReference
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,7 +59,9 @@ class MainActivity : AppCompatActivity() {
 
         mFirebaseDatabase = FirebaseDatabase.getInstance()
         mFirebaseAuth = FirebaseAuth.getInstance()
+        mFireBaseStorage = FirebaseStorage.getInstance()
         mMessageDatabaseReference = mFirebaseDatabase.reference.child("message")
+        mChatPhotoStorageReference = mFireBaseStorage.getReference().child("chat_photos")
 
         // Initialize references to views
 
@@ -65,7 +72,8 @@ class MainActivity : AppCompatActivity() {
             findViewById<View>(R.id.messageListView) as ListView
         mPhotoPickerButton = findViewById<View>(R.id.photoPickerButton) as ImageButton
         mMessageEditText = findViewById<View>(R.id.messageEditText) as EditText
-        mSendButton = findViewById<View>(R.id.sendButton) as Button
+        mSendButton = findViewById<View>(R.id.sendButton) as ImageButton
+        mSendButton?.isEnabled = false
 
         // Initialize message ListView and its adapter
 
@@ -75,16 +83,14 @@ class MainActivity : AppCompatActivity() {
         mMessageAdapter = MessageAdapter(this, R.layout.item_message, friendlyMessages)
         mMessageListView!!.adapter = mMessageAdapter
 
-        // Initialize progress bar
-
-        // Initialize progress bar
-        mProgressBar!!.visibility = ProgressBar.INVISIBLE
-
         // ImagePickerButton shows an image picker to upload a image for a message
 
         // ImagePickerButton shows an image picker to upload a image for a message
         mPhotoPickerButton!!.setOnClickListener {
-            // TODO: Fire an intent to show an image picker
+            val intent = Intent(Intent.ACTION_GET_CONTENT)
+            intent.setType("image/*")
+            intent.putExtra(Intent.EXTRA_LOCAL_ONLY,true)
+            startActivityForResult(intent,RC_PHOTO_PIC)
         }
 
         // Enable Send button when there's text to send
@@ -137,7 +143,7 @@ class MainActivity : AppCompatActivity() {
                         .setAvailableProviders(
                             Arrays.asList(
                                 GoogleBuilder().build(),
-                                //FacebookBuilder().build(),
+                                FacebookBuilder().build(),
                                 //TwitterBuilder().build(),
                                 //MicrosoftBuilder().build(),
                                 //YahooBuilder().build(),
@@ -173,6 +179,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun attachDatabaseReadListener(){
+        mProgressBar!!.visibility = ProgressBar.VISIBLE
+
         mChildEventListener = object : ChildEventListener {
             override fun onCancelled(p0: DatabaseError) {}
 
@@ -183,6 +191,7 @@ class MainActivity : AppCompatActivity() {
             override fun onChildAdded(p0: DataSnapshot, p1: String?) {
                 val message: FriendlyMessage? = p0.getValue(FriendlyMessage::class.java)
                 mMessageAdapter.add(message)
+                mProgressBar!!.visibility = ProgressBar.GONE
             }
 
             override fun onChildRemoved(p0: DataSnapshot) {}
@@ -219,6 +228,41 @@ class MainActivity : AppCompatActivity() {
             else {
                 Log.d(TAG, "SignIn canceled")
                 finish()
+            }
+
+        }
+        else if (requestCode == RC_PHOTO_PIC){
+            //get the data as uri
+            val selectedImageUri = data?.data
+            //get a reference  to store file at chat_photos
+            val photoRef = selectedImageUri?.lastPathSegment?.let {
+                mChatPhotoStorageReference.child(it)
+            }
+            //upload file to firebase
+            val uploadTask  = photoRef?.putFile(selectedImageUri)
+            val urlTask = uploadTask?.continueWithTask{task->
+                if (!task.isSuccessful) {
+                    task.exception?.let {
+                        throw  it
+                    }
+                }
+                photoRef.downloadUrl
+            }?.addOnCompleteListener  { task->
+                if (task.isSuccessful){
+                    //get the download url
+                    val downloadUri = task.result
+                   //add photo to firebase database
+                    val friendlyMessage =
+                        FriendlyMessage(null, mUsername, downloadUri.toString())
+                    mMessageDatabaseReference.push().setValue(friendlyMessage)
+                }else {
+                    // Handle failures
+                    Log.e(TAG,task.exception?.message.toString())
+                }
+            }?.addOnFailureListener{
+                Log.e(TAG, it.message.toString())
+                Toast.makeText(applicationContext, it.message, Toast.LENGTH_LONG).show()
+
             }
 
         }
