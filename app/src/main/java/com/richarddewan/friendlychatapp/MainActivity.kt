@@ -1,5 +1,7 @@
 package com.richarddewan.friendlychatapp
 
+import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.InputFilter
@@ -7,6 +9,7 @@ import android.text.InputFilter.LengthFilter
 import android.text.TextWatcher
 import android.util.Log
 import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -120,10 +123,14 @@ class MainActivity : AppCompatActivity() {
         mAuthStateListener = FirebaseAuth.AuthStateListener {
             val user: FirebaseUser? = it.currentUser
             if (user != null) {
-                onSignedIn(user.displayName)
+                //user is signed in
+                onSignedInInitialize(user.displayName)
                 Log.d(TAG,"Login success")
 
             } else {
+                //user in sign out
+                onSignOutCleanUp()
+
                 startActivityForResult(
                     AuthUI.getInstance()
                         .createSignInIntentBuilder()
@@ -155,6 +162,16 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        when(item.itemId){
+            R.id.sign_out_menu ->
+                AuthUI.getInstance().signOut(this)
+            else ->
+                return super.onOptionsItemSelected(item)
+        }
+        return true
+    }
+
     private fun attachDatabaseReadListener(){
         mChildEventListener = object : ChildEventListener {
             override fun onCancelled(p0: DatabaseError) {}
@@ -178,18 +195,33 @@ class MainActivity : AppCompatActivity() {
         mMessageDatabaseReference.removeEventListener(mChildEventListener)
     }
 
-    private fun onSignedIn(userName: String?){
+    private fun onSignedInInitialize(userName: String?){
         mUsername = userName
         attachDatabaseReadListener()
 
     }
 
-    private fun onSignOut(){
+    private fun onSignOutCleanUp(){
         mUsername = ANONYMOUS
         mMessageAdapter.clear()
         detachDatabaseReadListener()
 
 
+    }
+
+    //its called before onResume
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == RC_SIGN_IN){
+            if (resultCode == Activity.RESULT_OK){
+                Log.d(TAG,"SignIn success")
+            }
+            else {
+                Log.d(TAG, "SignIn canceled")
+                finish()
+            }
+
+        }
     }
 
     override fun onPause() {
